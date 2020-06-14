@@ -1,5 +1,5 @@
 # oneway-ssl-demo
-This is a demo prohect representing the one way SSL in mulesoft
+This is a demo project representing the one way SSL in mulesoft
 
 Below are the command used to generate the Self signed certificates used in the code
 
