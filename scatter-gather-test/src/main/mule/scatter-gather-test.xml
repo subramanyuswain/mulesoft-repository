@@ -38,7 +38,7 @@ output application/json
 lookup("lookupFlow", payload)]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
-		<set-variable value='#["subra"]' doc:name="Name" doc:id="d418e3f4-45c9-4b3f-bc48-c954d4db9979" variableName="name"/>
+		<set-variable value='#["Subra"]' doc:name="Name" doc:id="d418e3f4-45c9-4b3f-bc48-c954d4db9979" variableName="name"/>
 		<scatter-gather doc:name="Scatter-Gather" doc:id="79ebc2df-7e39-414a-a780-3737dd9b767b" >
 			<route >
 				<set-variable value='#["Subra"]' doc:name="Subra" doc:id="e226e688-7fc8-47eb-a888-e195b19b5feb" variableName="name"/>
