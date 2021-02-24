@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="d952e3d4-5c45-455f-9960-6cef9c45f0af" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<flow name="lookupFlow" doc:id="7a9251a1-f986-48a4-a0b5-bc1cf6c50eed" >
+		<ee:transform doc:name="Reciving Payload" doc:id="bf551ca9-eeb2-4e36-b988-3f9ec5c6eead" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="scatter-gather-mainFlow" doc:id="ef5cf8fd-58c1-4104-a830-3af45f285147" >
+		<http:listener doc:name="Listener" doc:id="04a3dbf7-0908-4af2-91c3-1d5d72501dd3" config-ref="HTTP_Listener_config" path="/"/>
+		<ee:transform doc:name="Set Payload" doc:id="ce323cfd-e022-456c-8237-70749d31b033" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	"Key" : "new payload"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Calling Lookup Flow" doc:id="da5ae743-37fe-4302-bb90-f287491a584c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+lookup("lookupFlow", payload)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value='#["subra"]' doc:name="Name" doc:id="d418e3f4-45c9-4b3f-bc48-c954d4db9979" variableName="name"/>
+		<scatter-gather doc:name="Scatter-Gather" doc:id="79ebc2df-7e39-414a-a780-3737dd9b767b" >
+			<route >
+				<set-variable value='#["Subra"]' doc:name="Subra" doc:id="e226e688-7fc8-47eb-a888-e195b19b5feb" variableName="name"/>
+			</route>
+			<route >
+				<set-variable value='#["Manyu"]' doc:name="Manyu" doc:id="cb350438-6583-4b46-a094-389dcc7620cc" variableName="name"/>
+			</route>
+			<route >
+				<set-variable value='#["Swain"]' doc:name="Swain" doc:id="3977b5df-8f25-477d-bcc8-4761f5ebf15a" variableName="name"/>
+			</route>
+		</scatter-gather>
+		<set-payload value="#[vars.name]" doc:name="Name Value" doc:id="b030c15a-b393-4520-babb-afcab6ac98d9" mimeType="application/json"/>
+		<ee:transform doc:name="Transform Message" doc:id="e0ef2722-2ef0-4823-8ec6-5154145e163e" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
