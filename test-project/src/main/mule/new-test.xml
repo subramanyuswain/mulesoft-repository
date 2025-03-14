@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="8957a504-4a1a-4961-88de-c618e6c8cad0" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<flow name="new-testFlow" doc:id="a4f1af52-db0d-4c0e-ab89-924a5a8723d7" >
+		<http:listener doc:name="/test" doc:id="f095105d-00a3-4e33-8d42-76924bf42192" config-ref="HTTP_Listener_config" path="/test"/>
+		<ee:transform doc:name="Data" doc:id="658a3db3-32c9-4702-8177-79442c52552d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	Employee: [
+
+			{
+				"first_name" : "Melba",
+				"last_name" : "Roy Mouton",
+				"department" : "Computers",
+				"job_title" : "Assistant Chief of Research Programs",
+				"start_date" : "01/01/2021",
+				"employee_type" : "Mathematician"
+
+			},
+			{
+				"first_name" : "Annie",
+				"last_name" : "Easley",
+				"department" : "Software Development",
+				"job_title" : "Technical Lead",
+				"start_date" : "06/02/2020",
+				"employee_type" : "Rocket Scientist"
+
+			},
+			{
+				"first_name" : "Jack",
+				"last_name" : "Dawson",
+				"department" : "Lead Actor",
+				"job_title" : "Actor",
+				"start_date" : "06/02/2020",
+				"employee_type" : "Bucket Scientist"
+
+			},
+			{
+				"first_name" : "Kate",
+				"last_name" : "Winslet",
+				"department" : "Actress",
+				"job_title" : "Photography",
+				"start_date" : "06/02/2020",
+				"employee_type" : "Docket Scientist"
+
+			}
+
+	]
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<parallel-foreach
+			  doc:name="Parallel foreach"
+			  doc:id="1ddc8cf3-e893-4f3e-9db4-65dda3055bd9"
+			  collection="#[payload.Employee]"
+			  maxConcurrency="15" target="result">
+			<logger level="INFO" doc:name="Separator" doc:id="fcc6e6c5-7681-4915-bf82-b41ec93ae5ac" message='#["************************************************************************************"]' />
+			<logger level="INFO" doc:name="Data" doc:id="4630a0e8-ac84-491f-8be3-c31671e31f65" message="#[payload]"/>
+			<logger level="INFO" doc:name="Separator" doc:id="33eae672-8b04-4cc9-b038-f79fe340635c" message='#["************************************************************************************"]'/>
+		</parallel-foreach>
+		<ee:transform doc:name="Transform Message" doc:id="be91a233-437d-447b-af8d-e6b337ef2d5e" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars.result.*payload.first_name]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
