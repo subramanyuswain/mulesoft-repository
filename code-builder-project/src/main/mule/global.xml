@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:kafka="http://www.mulesoft.org/schema/mule/kafka"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+                          http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
+                          http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+                          http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <!-- Configuration Properties -->
+    <configuration-properties file="config.properties" doc:name="Configuration properties" doc:id="config-props"/>
+
+    <!-- Kafka Consumer Configuration -->
+    <kafka:consumer-config name="Kafka_Consumer_config" doc:name="Kafka Consumer config" doc:id="kafka-consumer-config">
+        <kafka:consumer-connection bootstrapServers="${kafka.bootstrap.servers}">
+            <kafka:consumer-properties>
+                <kafka:consumer-property key="group.id" value="${kafka.consumer.group.id}"/>
+                <kafka:consumer-property key="auto.offset.reset" value="${kafka.auto.offset.reset}"/>
+                <kafka:consumer-property key="enable.auto.commit" value="${kafka.enable.auto.commit}"/>
+                <kafka:consumer-property key="max.poll.records" value="${kafka.batch.size}"/>
+                <kafka:consumer-property key="session.timeout.ms" value="30000"/>
+                <kafka:consumer-property key="heartbeat.interval.ms" value="3000"/>
+            </kafka:consumer-properties>
+        </kafka:consumer-connection>
+    </kafka:consumer-config>
+
+    <!-- PostgreSQL Database Configuration -->
+    <db:config name="Database_Config" doc:name="Database Config" doc:id="db-config">
+        <db:generic-connection url="jdbc:postgresql://${db.host}:${db.port}/${db.database}"
+                               driverClassName="org.postgresql.Driver"
+                               user="${db.username}"
+                               password="${db.password}">
+            <db:connection-properties>
+                <db:connection-property key="autoReconnect" value="true"/>
+                <db:connection-property key="useSSL" value="false"/>
+            </db:connection-properties>
+        </db:generic-connection>
+    </db:config>
+
+    <!-- Object Store Configuration -->
+    <os:object-store name="persistent_object_store" doc:name="Persistent Object Store" doc:id="persistent-os"
+                     persistent="${objectstore.persistent}"
+                     maxEntries="1000"
+                     entryTtl="3600"
+                     expirationInterval="300"/>
+
+    <!-- Global Error Handler -->
+    <error-handler name="globalErrorHandler" doc:name="Global Error Handler" doc:id="global-error-handler">
+        <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="on-error-propagate" type="ANY">
+            <logger level="ERROR" doc:name="Log Error" doc:id="log-error" message="Global Error: #[error.description] - #[error.detailedDescription]"/>
+        </on-error-propagate>
+    </error-handler>
+
+</mule>

@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:kafka="http://www.mulesoft.org/schema/mule/kafka"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+                          http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+                          http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+                          http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
+                          http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+                          http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+                          http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <munit:config name="kafka-postgres-integration-test-suite.xml" doc:name="MUnit configuration"/>
+
+    <!-- Test Configuration -->
+    <munit:before-suite name="before-suite" doc:name="Before Suite">
+        <munit-tools:mock-when doc:name="Mock Kafka Consumer Config" processor="kafka:consumer">
+            <munit-tools:then-return>
+                <munit-tools:payload value="#[[]]"/>
+            </munit-tools:then-return>
+        </munit-tools:mock-when>
+        
+        <munit-tools:mock-when doc:name="Mock Database Config" processor="db:bulk-insert">
+            <munit-tools:then-return>
+                <munit-tools:payload value="#[{affectedRows: 100}]"/>
+            </munit-tools:then-return>
+        </munit-tools:mock-when>
+        
+        <munit-tools:mock-when doc:name="Mock Object Store Retrieve" processor="os:retrieve">
+            <munit-tools:then-return>
+                <munit-tools:payload value="0"/>
+            </munit-tools:then-return>
+        </munit-tools:mock-when>
+        
+        <munit-tools:mock-when doc:name="Mock Object Store Store" processor="os:store">
+            <munit-tools:then-return>
+                <munit-tools:payload value="true"/>
+            </munit-tools:then-return>
+        </munit-tools:mock-when>
+        
+        <munit-tools:mock-when doc:name="Mock Kafka Commit" processor="kafka:commit">
+            <munit-tools:then-return>
+                <munit-tools:payload value="true"/>
+            </munit-tools:then-return>
+        </munit-tools:mock-when>
+    </munit:before-suite>
+
+    <!-- Test Case 1: Test Kafka Consumer Flow with Batch Size Reached -->
+    <munit:test name="test-kafka-consumer-flow-batch-size-reached" doc:name="Test Kafka Consumer Flow - Batch Size Reached">
+        <munit:behavior>
+            <set-payload value="#[1 to 100 map {
+                offset: $ as Number,
+                partition: 0,
+                topic: 'usspoke-dualparty-data',
+                payload: 'test-message-' ++ $,
+                key: 'key-' ++ $
+            }]" doc:name="Set Test Kafka Messages"/>
+        </munit:behavior>
+        
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to kafka-consumer-flow" name="kafka-consumer-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Process Kafka Messages Called" processor="mule:flow-ref">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="process-kafka-messages-flow" attributeName="name"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 2: Test Kafka Consumer Flow with Batch Size Not Reached -->
+    <munit:test name="test-kafka-consumer-flow-batch-size-not-reached" doc:name="Test Kafka Consumer Flow - Batch Size Not Reached">
+        <munit:behavior>
+            <set-payload value="#[1 to 50 map {
+                offset: $ as Number,
+                partition: 0,
+                topic: 'usspoke-dualparty-data',
+                payload: 'test-message-' ++ $,
+                key: 'key-' ++ $
+            }]" doc:name="Set Test Kafka Messages (Less than batch size)"/>
+        </munit:behavior>
+        
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to kafka-consumer-flow" name="kafka-consumer-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Process Kafka Messages Not Called" processor="mule:flow-ref" times="0">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="process-kafka-messages-flow" attributeName="name"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 3: Test Process Kafka Messages Flow -->
+    <munit:test name="test-process-kafka-messages-flow" doc:name="Test Process Kafka Messages Flow">
+        <munit:behavior>
+            <set-payload value="#[1 to 100 map {
+                offset: $ as Number,
+                partition: 0,
+                topic: 'usspoke-dualparty-data',
+                payload: 'test-message-' ++ $,
+                key: 'key-' ++ $
+            }]" doc:name="Set Test Kafka Messages"/>
+        </munit:behavior>
+        
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to process-kafka-messages-flow" name="process-kafka-messages-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Get Last Offset Called" processor="mule:flow-ref">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="get-last-offset-flow" attributeName="name"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+            
+            <munit-tools:verify-call doc:name="Verify Insert Database Called" processor="mule:flow-ref">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="insert-database-flow" attributeName="name"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+            
+            <munit-tools:verify-call doc:name="Verify Update Offset Called" processor="mule:flow-ref">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="update-offset-flow" attributeName="name"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+            
+            <munit-tools:verify-call doc:name="Verify Kafka Commit Called" processor="kafka:commit"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 4: Test Insert Database Flow -->
+    <munit:test name="test-insert-database-flow" doc:name="Test Insert Database Flow">
+        <munit:behavior>
+            <set-payload value="#[1 to 5 map {
+                id: uuid(),
+                kafka_offset: $ as Number,
+                kafka_partition: 0,
+                kafka_topic: 'usspoke-dualparty-data',
+                message_data: 'test-message-' ++ $,
+                processed_timestamp: now(),
+                message_key: 'key-' ++ $
+            }]" doc:name="Set Transformed Messages"/>
+        </munit:behavior>
+        
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to insert-database-flow" name="insert-database-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Database Bulk Insert Called" processor="db:bulk-insert"/>
+            <munit-tools:assert-that doc:name="Assert Payload Contains Affected Rows" expression="#[payload.affectedRows]" is="#[MunitTools::notNullValue()]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 5: Test Get Last Offset Flow -->
+    <munit:test name="test-get-last-offset-flow" doc:name="Test Get Last Offset Flow">
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to get-last-offset-flow" name="get-last-offset-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Object Store Retrieve Called" processor="os:retrieve"/>
+            <munit-tools:assert-that doc:name="Assert Retrieved Offset Variable Set" expression="#[vars.retrievedOffset]" is="#[MunitTools::notNullValue()]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 6: Test Update Offset Flow -->
+    <munit:test name="test-update-offset-flow" doc:name="Test Update Offset Flow">
+        <munit:behavior>
+            <set-variable value="12345" doc:name="Set Last Offset Variable" variableName="lastOffset"/>
+        </munit:behavior>
+        
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to update-offset-flow" name="update-offset-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Object Store Store Called" processor="os:store"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 7: Test Error Notification Flow -->
+    <munit:test name="test-error-notification-flow" doc:name="Test Error Notification Flow">
+        <munit:behavior>
+            <munit-tools:mock-when doc:name="Mock Error Context" processor="mule:set-payload">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="set-error-payload" attributeName="doc:id"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[{
+                        "timestamp": "2023-01-01T00:00:00Z",
+                        "flow": "test-flow",
+                        "error": "Test error",
+                        "errorType": "TEST:ERROR",
+                        "detailedDescription": "Test error description"
+                    }]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        
+        <munit:execution>
+            <flow-ref doc:name="Flow-ref to error-notification-flow" name="error-notification-flow"/>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:assert-that doc:name="Assert Error Payload Structure" expression="#[payload.timestamp]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-that doc:name="Assert Error Flow Name" expression="#[payload.flow]" is="#[MunitTools::notNullValue()]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 8: Test Data Transformation -->
+    <munit:test name="test-data-transformation" doc:name="Test Data Transformation">
+        <munit:behavior>
+            <set-payload value="#[1 to 3 map {
+                offset: $ as Number,
+                partition: 0,
+                topic: 'usspoke-dualparty-data',
+                payload: 'test-message-' ++ $,
+                key: 'key-' ++ $
+            }]" doc:name="Set Test Kafka Messages"/>
+            <set-variable value="#[payload]" doc:name="Set Kafka Messages Variable" variableName="kafkaMessages"/>
+        </munit:behavior>
+        
+        <munit:execution>
+            <ee:transform doc:name="Transform Messages">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+vars.kafkaMessages map (message, index) -> {
+    id: uuid(),
+    kafka_offset: message.offset,
+    kafka_partition: message.partition,
+    kafka_topic: message.topic,
+    message_data: message.payload,
+    processed_timestamp: now(),
+    message_key: message.key default null
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:assert-that doc:name="Assert Payload Size" expression="#[sizeOf(payload)]" is="#[MunitTools::equalTo(3)]"/>
+            <munit-tools:assert-that doc:name="Assert First Record ID" expression="#[payload[0].id]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-that doc:name="Assert First Record Offset" expression="#[payload[0].kafka_offset]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that doc:name="Assert First Record Topic" expression="#[payload[0].kafka_topic]" is="#[MunitTools::equalTo('usspoke-dualparty-data')]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test Case 9: Test Error Handling in Process Messages Flow -->
+    <munit:test name="test-process-messages-flow-error-handling" doc:name="Test Process Messages Flow Error Handling">
+        <munit:behavior>
+            <set-payload value="#[1 to 100 map {
+                offset: $ as Number,
+                partition: 0,
+                topic: 'usspoke-dualparty-data',
+                payload: 'test-message-' ++ $,
+                key: 'key-' ++ $
+            }]" doc:name="Set Test Kafka Messages"/>
+            
+            <munit-tools:mock-when doc:name="Mock Database Insert Error" processor="db:bulk-insert">
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="DB:CONNECTIVITY"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        
+        <munit:execution>
+            <try doc:name="Try">
+                <flow-ref doc:name="Flow-ref to process-kafka-messages-flow" name="process-kafka-messages-flow"/>
+                <error-handler>
+                    <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue">
+                        <set-payload value="Error handled" doc:name="Set Error Handled Payload"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        
+        <munit:validation>
+            <munit-tools:verify-call doc:name="Verify Error Notification Called" processor="mule:flow-ref">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute whereValue="error-notification-flow" attributeName="name"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+</mule>

@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:kafka="http://www.mulesoft.org/schema/mule/kafka"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+                          http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
+                          http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+                          http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+                          http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+                          http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+
+    <!-- Main Kafka Consumer Flow -->
+    <flow name="kafka-consumer-flow" doc:name="Kafka Consumer Flow" doc:id="kafka-consumer-flow">
+        <kafka:consumer config-ref="Kafka_Consumer_config" 
+                        topic="${kafka.topic.name}" 
+                        doc:name="Kafka Consumer" 
+                        doc:id="kafka-consumer">
+            <kafka:consumer-commit-strategy>
+                <kafka:manual-commit/>
+            </kafka:consumer-commit-strategy>
+        </kafka:consumer>
+        
+        <logger level="INFO" doc:name="Log Received Messages" doc:id="log-received-messages" 
+                message="Received #[sizeOf(payload)] messages from Kafka topic: ${kafka.topic.name}"/>
+        
+        <!-- Check if batch size is reached -->
+        <choice doc:name="Check Batch Size" doc:id="check-batch-size">
+            <when expression="#[sizeOf(payload) >= ${kafka.batch.size}]">
+                <logger level="INFO" doc:name="Log Batch Processing" doc:id="log-batch-processing" 
+                        message="Processing batch of #[sizeOf(payload)] messages"/>
+                <flow-ref doc:name="Process Kafka Messages" doc:id="process-kafka-messages" name="process-kafka-messages-flow"/>
+            </when>
+            <otherwise>
+                <logger level="INFO" doc:name="Log Batch Size Not Reached" doc:id="log-batch-size-not-reached" 
+                        message="Batch size not reached. Current: #[sizeOf(payload)], Required: ${kafka.batch.size}"/>
+            </otherwise>
+        </choice>
+        
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="kafka-consumer-error" type="ANY">
+                <logger level="ERROR" doc:name="Log Kafka Consumer Error" doc:id="log-kafka-consumer-error" 
+                        message="Error in Kafka Consumer Flow: #[error.description]"/>
+                <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref" name="error-notification-flow"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- Process Kafka Messages Flow -->
+    <flow name="process-kafka-messages-flow" doc:name="Process Kafka Messages Flow" doc:id="process-kafka-messages-flow">
+        <logger level="INFO" doc:name="Start Processing" doc:id="start-processing" 
+                message="Starting to process #[sizeOf(payload)] Kafka messages"/>
+        
+        <!-- Retrieve last processed offset -->
+        <flow-ref doc:name="Get Last Offset" doc:id="get-last-offset" name="get-last-offset-flow"/>
+        
+        <!-- Store messages and offset info for processing -->
+        <set-variable value="#[payload]" doc:name="Store Messages" doc:id="store-messages" variableName="kafkaMessages"/>
+        <set-variable value="#[payload[-1].offset]" doc:name="Store Last Offset" doc:id="store-last-offset" variableName="lastOffset"/>
+        
+        <!-- Transform and validate messages -->
+        <ee:transform doc:name="Transform Messages" doc:id="transform-messages">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+vars.kafkaMessages map (message, index) -> {
+    id: uuid(),
+    kafka_offset: message.offset,
+    kafka_partition: message.partition,
+    kafka_topic: message.topic,
+    message_data: message.payload,
+    processed_timestamp: now(),
+    message_key: message.key default null
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Validate transformed data -->
+        <validation:is-not-empty value="#[payload]" doc:name="Validate Payload Not Empty" doc:id="validate-payload-not-empty"/>
+        
+        <!-- Insert data into PostgreSQL -->
+        <flow-ref doc:name="Insert Into Database" doc:id="insert-into-database" name="insert-database-flow"/>
+        
+        <!-- Update offset in object store -->
+        <flow-ref doc:name="Update Offset" doc:id="update-offset" name="update-offset-flow"/>
+        
+        <!-- Commit Kafka offset -->
+        <kafka:commit doc:name="Commit Kafka Offset" doc:id="commit-kafka-offset" config-ref="Kafka_Consumer_config"/>
+        
+        <logger level="INFO" doc:name="Log Success" doc:id="log-success" 
+                message="Successfully processed #[sizeOf(payload)] messages. Last offset: #[vars.lastOffset]"/>
+        
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="process-messages-error" type="ANY">
+                <logger level="ERROR" doc:name="Log Processing Error" doc:id="log-processing-error" 
+                        message="Error processing messages: #[error.description]"/>
+                <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref2" name="error-notification-flow"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- Insert Database Flow -->
+    <flow name="insert-database-flow" doc:name="Insert Database Flow" doc:id="insert-database-flow">
+        <logger level="INFO" doc:name="Log Database Insert Start" doc:id="log-database-insert-start" 
+                message="Inserting #[sizeOf(payload)] records into database table: ${db.table.name}"/>
+        
+        <db:bulk-insert doc:name="Bulk Insert" doc:id="bulk-insert" config-ref="Database_Config">
+            <db:sql><![CDATA[INSERT INTO ${db.table.name} 
+                (id, kafka_offset, kafka_partition, kafka_topic, message_data, processed_timestamp, message_key) 
+                VALUES (:id, :kafka_offset, :kafka_partition, :kafka_topic, :message_data, :processed_timestamp, :message_key)]]></db:sql>
+            <db:parameter-types>
+                <db:parameter-type key="id" type="VARCHAR"/>
+                <db:parameter-type key="kafka_offset" type="BIGINT"/>
+                <db:parameter-type key="kafka_partition" type="INTEGER"/>
+                <db:parameter-type key="kafka_topic" type="VARCHAR"/>
+                <db:parameter-type key="message_data" type="TEXT"/>
+                <db:parameter-type key="processed_timestamp" type="TIMESTAMP"/>
+                <db:parameter-type key="message_key" type="VARCHAR"/>
+            </db:parameter-types>
+        </db:bulk-insert>
+        
+        <logger level="INFO" doc:name="Log Database Insert Success" doc:id="log-database-insert-success" 
+                message="Successfully inserted #[payload.affectedRows] records into database"/>
+        
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="database-insert-error" type="ANY">
+                <logger level="ERROR" doc:name="Log Database Error" doc:id="log-database-error" 
+                        message="Database insert error: #[error.description]"/>
+                <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref3" name="error-notification-flow"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- Get Last Offset Flow -->
+    <flow name="get-last-offset-flow" doc:name="Get Last Offset Flow" doc:id="get-last-offset-flow">
+        <os:retrieve doc:name="Retrieve Last Offset" doc:id="retrieve-last-offset" 
+                     key="${objectstore.offset.key}" 
+                     objectStore="persistent_object_store" 
+                     defaultValue="0"/>
+        
+        <set-variable value="#[payload]" doc:name="Set Last Offset Variable" doc:id="set-last-offset-variable" variableName="retrievedOffset"/>
+        
+        <logger level="INFO" doc:name="Log Retrieved Offset" doc:id="log-retrieved-offset" 
+                message="Retrieved last processed offset: #[vars.retrievedOffset]"/>
+        
+        <error-handler>
+            <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="get-offset-error" type="ANY">
+                <logger level="WARN" doc:name="Log Offset Retrieval Warning" doc:id="log-offset-retrieval-warning" 
+                        message="Could not retrieve last offset, starting from beginning: #[error.description]"/>
+                <set-variable value="0" doc:name="Set Default Offset" doc:id="set-default-offset" variableName="retrievedOffset"/>
+            </on-error-continue>
+        </error-handler>
+    </flow>
+
+    <!-- Update Offset Flow -->
+    <flow name="update-offset-flow" doc:name="Update Offset Flow" doc:id="update-offset-flow">
+        <os:store doc:name="Store Last Offset" doc:id="store-last-offset" 
+                  key="${objectstore.offset.key}" 
+                  objectStore="persistent_object_store">
+            <os:value>#[vars.lastOffset]</os:value>
+        </os:store>
+        
+        <logger level="INFO" doc:name="Log Offset Update" doc:id="log-offset-update" 
+                message="Updated last processed offset to: #[vars.lastOffset]"/>
+        
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="update-offset-error" type="ANY">
+                <logger level="ERROR" doc:name="Log Offset Update Error" doc:id="log-offset-update-error" 
+                        message="Error updating offset: #[error.description]"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- Error Notification Flow -->
+    <flow name="error-notification-flow" doc:name="Error Notification Flow" doc:id="error-notification-flow">
+        <logger level="ERROR" doc:name="Log Error Details" doc:id="log-error-details" 
+                message="Error occurred in flow: #[flow.name], Error: #[error.description], Detailed: #[error.detailedDescription]"/>
+        
+        <!-- Here you can add additional error handling like sending notifications, alerts, etc. -->
+        <set-payload value='#[{
+            "timestamp": now(),
+            "flow": flow.name,
+            "error": error.description,
+            "errorType": error.errorType,
+            "detailedDescription": error.detailedDescription
+        }]' doc:name="Set Error Payload" doc:id="set-error-payload"/>
+        
+        <logger level="ERROR" doc:name="Log Error Summary" doc:id="log-error-summary" 
+                message="Error Summary: #[payload]"/>
+    </flow>
+
+</mule>
