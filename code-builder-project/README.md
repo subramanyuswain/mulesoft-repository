@@ -284,4 +284,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Prompt used
 
-write a MuleSoft code to fetch data from Kafka topic called usspoke-dualparty-data and write it to a Postgres database table named usspoke-data-table. Create all the required configurations in global.xml file. This listens to Kafka topic and starts executing when the Kafka message size reaches 100. Upon completion it saves the last processed offset into a persistent object-store and the next round of execution starts from that offset. Make sure all the error handling is done properly and Munits are also implemented
+1. write a MuleSoft code to fetch data from Kafka topic called usspoke-dualparty-data and write it to a Postgres database table named usspoke-data-table. Create all the required configurations in global.xml file. This listens to Kafka topic and starts executing when the Kafka message size reaches 100. Upon completion it saves the last processed offset into a persistent object-store and the next round of execution starts from that offset. Make sure all the error handling is done properly and Munits are also implemented
