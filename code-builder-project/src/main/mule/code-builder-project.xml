@@ -6,13 +6,15 @@
       xmlns:os="http://www.mulesoft.org/schema/mule/os"
       xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
       xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+      xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
                           http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
                           http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
                           http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
                           http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
-                          http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+                          http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+                          http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd">
 
     <!-- Main Kafka Consumer Flow -->
     <flow name="kafka-consumer-flow" doc:name="Kafka Consumer Flow" doc:id="kafka-consumer-flow">
@@ -85,6 +87,9 @@ vars.kafkaMessages map (message, index) -> {
         
         <!-- Insert data into PostgreSQL -->
         <flow-ref doc:name="Insert Into Database" doc:id="insert-into-database" name="insert-database-flow"/>
+        
+        <!-- Write to SFTP -->
+        <flow-ref doc:name="Write to SFTP" doc:id="write-to-sftp" name="write-kafka-to-sftp-flow"/>
         
         <!-- Update offset in object store -->
         <flow-ref doc:name="Update Offset" doc:id="update-offset" name="update-offset-flow"/>
@@ -192,6 +197,55 @@ vars.kafkaMessages map (message, index) -> {
         
         <logger level="ERROR" doc:name="Log Error Summary" doc:id="log-error-summary" 
                 message="Error Summary: #[payload]"/>
+    </flow>
+
+    <!-- Write Kafka Records to SFTP Flow -->
+    <flow name="write-kafka-to-sftp-flow" doc:name="Write Kafka to SFTP Flow" doc:id="write-kafka-to-sftp-flow">
+        <logger level="INFO" doc:name="Log SFTP Write Start" doc:id="log-sftp-write-start" 
+                message="Starting to write #[sizeOf(payload)] Kafka records to SFTP"/>
+        
+        <!-- Transform Kafka records to CSV format -->
+        <ee:transform doc:name="Transform to CSV" doc:id="transform-to-csv">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output text/csv header=true
+---
+payload map (record, index) -> {
+    "ID": record.id,
+    "Kafka_Offset": record.kafka_offset,
+    "Kafka_Partition": record.kafka_partition,
+    "Kafka_Topic": record.kafka_topic,
+    "Message_Data": record.message_data,
+    "Processed_Timestamp": record.processed_timestamp as String {format: "yyyy-MM-dd HH:mm:ss"},
+    "Message_Key": record.message_key default ""
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Generate unique filename with timestamp -->
+        <set-variable value='#["${sftp.file.name.prefix}" ++ (now() as String {format: "yyyyMMdd_HHmmss"}) ++ "${sftp.file.extension}"]' 
+                      doc:name="Set Filename" doc:id="set-filename" variableName="sftpFileName"/>
+        
+        <logger level="INFO" doc:name="Log Filename" doc:id="log-filename" 
+                message="Generated SFTP filename: #[vars.sftpFileName]"/>
+        
+        <!-- Write to SFTP -->
+        <sftp:write doc:name="Write to SFTP" doc:id="write-to-sftp-operation" 
+                    config-ref="SFTP_Config" 
+                    path="#[vars.sftpFileName]">
+            <sftp:content>#[payload]</sftp:content>
+        </sftp:write>
+        
+        <logger level="INFO" doc:name="Log SFTP Write Success" doc:id="log-sftp-write-success" 
+                message="Successfully wrote Kafka records to SFTP file: #[vars.sftpFileName]"/>
+        
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="sftp-write-error" type="ANY">
+                <logger level="ERROR" doc:name="Log SFTP Write Error" doc:id="log-sftp-write-error" 
+                        message="Error writing to SFTP: #[error.description]"/>
+                <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref4" name="error-notification-flow"/>
+            </on-error-propagate>
+        </error-handler>
     </flow>
 
 </mule>

@@ -4,11 +4,13 @@
       xmlns:kafka="http://www.mulesoft.org/schema/mule/kafka"
       xmlns:db="http://www.mulesoft.org/schema/mule/db"
       xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
                           http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
                           http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
-                          http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+                          http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+                          http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd">
 
     <!-- Configuration Properties -->
     <configuration-properties file="config.properties" doc:name="Configuration properties" doc:id="config-props"/>
@@ -32,13 +34,17 @@
         <db:generic-connection url="jdbc:postgresql://${db.host}:${db.port}/${db.database}"
                                driverClassName="org.postgresql.Driver"
                                user="${db.username}"
-                               password="${db.password}">
-            <db:connection-properties>
-                <db:connection-property key="autoReconnect" value="true"/>
-                <db:connection-property key="useSSL" value="false"/>
-            </db:connection-properties>
-        </db:generic-connection>
+                               password="${db.password}"/>
     </db:config>
+
+    <!-- SFTP Configuration -->
+    <sftp:config name="SFTP_Config" doc:name="SFTP Config" doc:id="sftp-config">
+        <sftp:connection host="${sftp.host}" 
+                         port="${sftp.port}" 
+                         username="${sftp.username}" 
+                         password="${sftp.password}" 
+                         workingDir="${sftp.working.directory}"/>
+    </sftp:config>
 
     <!-- Object Store Configuration -->
     <os:object-store name="persistent_object_store" doc:name="Persistent Object Store" doc:id="persistent-os"
@@ -46,12 +52,5 @@
                      maxEntries="1000"
                      entryTtl="3600"
                      expirationInterval="300"/>
-
-    <!-- Global Error Handler -->
-    <error-handler name="globalErrorHandler" doc:name="Global Error Handler" doc:id="global-error-handler">
-        <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="on-error-propagate" type="ANY">
-            <logger level="ERROR" doc:name="Log Error" doc:id="log-error" message="Global Error: #[error.description] - #[error.detailedDescription]"/>
-        </on-error-propagate>
-    </error-handler>
 
 </mule>
