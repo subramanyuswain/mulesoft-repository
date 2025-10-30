@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd">
+
+	<!-- Configuration Properties with Encryption Support -->
+	<configuration-properties file="config.properties" doc:name="Configuration properties" doc:id="config-props"/>
+	
+	<secure-properties:config name="Secure_Properties_Config" doc:name="Secure Properties Config" doc:id="secure-props-config" file="secure.properties" key="${encryption.key}"/>
+
+	<!-- Database Configuration with Encrypted Password -->
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="db-config">
+		<db:generic-connection url="${db.url}" driverClassName="${db.driver}" user="${db.username}" password="${secure::db.password}"/>
+	</db:config>
+
+	<!-- File Configuration -->
+	<file:config name="File_Config" doc:name="File Config" doc:id="file-config">
+		<file:connection workingDir="${file.working.dir}"/>
+	</file:config>
+
+	<!-- Global Error Handler -->
+	<error-handler name="globalErrorHandler" doc:id="global-error-handler">
+		<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="global-error-continue" type="CONNECTIVITY">
+			<logger level="ERROR" doc:name="Connectivity Error" doc:id="connectivity-error-logger" message="Connectivity error occurred: #[error.description]"/>
+		</on-error-continue>
+		<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="global-error-timeout" type="TIMEOUT">
+			<logger level="ERROR" doc:name="Timeout Error" doc:id="timeout-error-logger" message="Timeout error occurred: #[error.description]"/>
+		</on-error-continue>
+		<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="global-error-any" type="ANY">
+			<logger level="ERROR" doc:name="General Error" doc:id="general-error-logger" message="Unexpected error occurred: #[error.description]"/>
+		</on-error-propagate>
+	</error-handler>
+
+	<!-- Global Configuration for Schedulers -->
+	<configuration defaultErrorHandler-ref="globalErrorHandler" doc:name="Configuration" doc:id="global-config"/>
+
+</mule>

@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+	
+	<munit:config name="file-reader-process-test.xml" />
+	
+	<!-- Test for successful file processing -->
+	<munit:test name="test-file-reader-scheduler-flow-success" doc:id="test-file-reader-success" description="Test successful file processing">
+		<munit:behavior>
+			<munit-tools:mock-when doc:name="Mock file list" doc:id="mock-file-list" processor="file:list">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="list-files" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='[{"path": "/temp/input/test-file.txt", "attributes": {"fileName": "test-file.txt"}}]' mediaType="application/json" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			
+			<munit-tools:mock-when doc:name="Mock file read" doc:id="mock-file-read" processor="file:read">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="read-file" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="This is test file content for processing" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			
+			<munit-tools:mock-when doc:name="Mock database insert" doc:id="mock-db-insert" processor="db:insert">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='{"affectedRows": 1}' mediaType="application/json" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			
+			<munit-tools:mock-when doc:name="Mock file move" doc:id="mock-file-move" processor="file:move">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="move-file" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="File moved successfully" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		
+		<munit:execution>
+			<flow-ref doc:name="Call file-reader-scheduler-flow" doc:id="call-main-flow" name="file-reader-scheduler-flow"/>
+		</munit:execution>
+		
+		<munit:validation>
+			<munit-tools:verify-call doc:name="Verify file list called" doc:id="verify-file-list" processor="file:list" times="1">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="list-files" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+			
+			<munit-tools:verify-call doc:name="Verify file read called" doc:id="verify-file-read" processor="file:read" times="1">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="read-file" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+			
+			<munit-tools:verify-call doc:name="Verify database insert called" doc:id="verify-db-insert" processor="db:insert" times="1">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<!-- Test for database health check -->
+	<munit:test name="test-database-health-check-flow" doc:id="test-db-health-check" description="Test database health check flow">
+		<munit:behavior>
+			<munit-tools:mock-when doc:name="Mock health check query" doc:id="mock-health-check" processor="db:select">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-health-check" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='[{"health_check": 1}]' mediaType="application/json" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		
+		<munit:execution>
+			<flow-ref doc:name="Call database-health-check-flow" doc:id="call-health-flow" name="database-health-check-flow"/>
+		</munit:execution>
+		
+		<munit:validation>
+			<munit-tools:verify-call doc:name="Verify health check called" doc:id="verify-health-check" processor="db:select" times="1">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-health-check" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+			
+			<munit-tools:assert-that doc:name="Assert health check result" doc:id="assert-health-result" expression="#[payload[0].health_check]" is="#[MunitTools::equalTo(1)]"/>
+		</munit:validation>
+	</munit:test>
+	
+	<!-- Test for error handling -->
+	<munit:test name="test-file-reader-error-handling" doc:id="test-error-handling" description="Test error handling in file processing">
+		<munit:behavior>
+			<munit-tools:mock-when doc:name="Mock file list error" doc:id="mock-file-list-error" processor="file:list">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="list-files" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:error typeId="FILE:ILLEGAL_PATH" description="Invalid file path"/>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		
+		<munit:execution>
+			<flow-ref doc:name="Call file-reader-scheduler-flow" doc:id="call-main-flow-error" name="file-reader-scheduler-flow"/>
+		</munit:execution>
+		
+		<munit:validation>
+			<munit-tools:assert-that doc:name="Assert error response" doc:id="assert-error-response" expression="#[payload.status]" is="#[MunitTools::equalTo('ERROR')]"/>
+		</munit:validation>
+	</munit:test>
+</mule>

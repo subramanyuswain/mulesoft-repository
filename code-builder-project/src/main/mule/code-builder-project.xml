@@ -7,6 +7,7 @@
       xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
       xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
       xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp"
+      xmlns:wsc="http://www.mulesoft.org/schema/mule/wsc"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
                           http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
@@ -14,7 +15,8 @@
                           http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
                           http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
                           http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
-                          http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd">
+                          http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd
+                          http://www.mulesoft.org/schema/mule/wsc http://www.mulesoft.org/schema/mule/wsc/current/mule-wsc.xsd">
 
     <!-- Main Kafka Consumer Flow -->
     <flow name="kafka-consumer-flow" doc:name="Kafka Consumer Flow" doc:id="kafka-consumer-flow">
@@ -53,7 +55,7 @@
     </flow>
 
     <!-- Process Kafka Messages Flow -->
-    <flow name="process-kafka-messages-flow" doc:name="Process Kafka Messages Flow" doc:id="process-kafka-messages-flow">
+    <sub-flow name="process-kafka-messages-flow" doc:name="Process Kafka Messages Flow" doc:id="process-kafka-messages-flow">
         <logger level="INFO" doc:name="Start Processing" doc:id="start-processing" 
                 message="Starting to process #[sizeOf(payload)] Kafka messages"/>
         
@@ -95,7 +97,7 @@ vars.kafkaMessages map (message, index) -> {
         <flow-ref doc:name="Update Offset" doc:id="update-offset" name="update-offset-flow"/>
         
         <!-- Commit Kafka offset -->
-        <kafka:commit doc:name="Commit Kafka Offset" doc:id="commit-kafka-offset" config-ref="Kafka_Consumer_config"/>
+        <kafka:commit doc:name="Commit Kafka Offset" doc:id="commit-kafka-offset" config-ref="Kafka_Consumer_config" commitKey="manual"/>
         
         <logger level="INFO" doc:name="Log Success" doc:id="log-success" 
                 message="Successfully processed #[sizeOf(payload)] messages. Last offset: #[vars.lastOffset]"/>
@@ -110,7 +112,7 @@ vars.kafkaMessages map (message, index) -> {
     </flow>
 
     <!-- Insert Database Flow -->
-    <flow name="insert-database-flow" doc:name="Insert Database Flow" doc:id="insert-database-flow">
+    <sub-flow name="insert-database-flow" doc:name="Insert Database Flow" doc:id="insert-database-flow">
         <logger level="INFO" doc:name="Log Database Insert Start" doc:id="log-database-insert-start" 
                 message="Inserting #[sizeOf(payload)] records into database table: ${db.table.name}"/>
         
@@ -123,7 +125,7 @@ vars.kafkaMessages map (message, index) -> {
                 <db:parameter-type key="kafka_offset" type="BIGINT"/>
                 <db:parameter-type key="kafka_partition" type="INTEGER"/>
                 <db:parameter-type key="kafka_topic" type="VARCHAR"/>
-                <db:parameter-type key="message_data" type="TEXT"/>
+                <db:parameter-type key="message_data" type="CLOB"/>
                 <db:parameter-type key="processed_timestamp" type="TIMESTAMP"/>
                 <db:parameter-type key="message_key" type="VARCHAR"/>
             </db:parameter-types>
@@ -142,44 +144,50 @@ vars.kafkaMessages map (message, index) -> {
     </flow>
 
     <!-- Get Last Offset Flow -->
-    <flow name="get-last-offset-flow" doc:name="Get Last Offset Flow" doc:id="get-last-offset-flow">
-        <os:retrieve doc:name="Retrieve Last Offset" doc:id="retrieve-last-offset" 
-                     key="${objectstore.offset.key}" 
-                     objectStore="persistent_object_store" 
-                     defaultValue="0"/>
-        
-        <set-variable value="#[payload]" doc:name="Set Last Offset Variable" doc:id="set-last-offset-variable" variableName="retrievedOffset"/>
-        
-        <logger level="INFO" doc:name="Log Retrieved Offset" doc:id="log-retrieved-offset" 
-                message="Retrieved last processed offset: #[vars.retrievedOffset]"/>
-        
-        <error-handler>
-            <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="get-offset-error" type="ANY">
-                <logger level="WARN" doc:name="Log Offset Retrieval Warning" doc:id="log-offset-retrieval-warning" 
-                        message="Could not retrieve last offset, starting from beginning: #[error.description]"/>
-                <set-variable value="0" doc:name="Set Default Offset" doc:id="set-default-offset" variableName="retrievedOffset"/>
-            </on-error-continue>
-        </error-handler>
-    </flow>
+    <sub-flow name="get-last-offset-flow" doc:name="Get Last Offset Flow" doc:id="get-last-offset-flow">
+        <try doc:name="Try" doc:id="try-get-offset">
+            <os:retrieve doc:name="Retrieve Last Offset" doc:id="retrieve-last-offset" 
+                         key="${objectstore.offset.key}" 
+                         objectStore="persistent_object_store"/>
+            
+            <set-variable value="#[payload]" doc:name="Set Last Offset Variable" doc:id="set-last-offset-variable" variableName="retrievedOffset"/>
+            
+            <logger level="INFO" doc:name="Log Retrieved Offset" doc:id="log-retrieved-offset" 
+                    message="Retrieved last processed offset: #[vars.retrievedOffset]"/>
+            
+            <error-handler>
+                <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="get-offset-error" type="ANY">
+                    <logger level="WARN" doc:name="Log Offset Retrieval Warning" doc:id="log-offset-retrieval-warning" 
+                            message="Could not retrieve last offset, starting from beginning: #[error.description]"/>
+                    <set-variable value="0" doc:name="Set Default Offset" doc:id="set-default-offset" variableName="retrievedOffset"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+    </sub-flow>
 
     <!-- Update Offset Flow -->
-    <flow name="update-offset-flow" doc:name="Update Offset Flow" doc:id="update-offset-flow">
-        <os:store doc:name="Store Last Offset" doc:id="store-last-offset" 
-                  key="${objectstore.offset.key}" 
-                  objectStore="persistent_object_store">
-            <os:value>#[vars.lastOffset]</os:value>
-        </os:store>
+    <sub-flow name="update-offset-flow" doc:name="Update Offset Flow" doc:id="update-offset-flow">
+        <logger level="INFO" doc:name="Log Offset Update Start" doc:id="log-offset-update-start" 
+                message="Updating last processed offset to: #[vars.lastOffset]"/>
         
-        <logger level="INFO" doc:name="Log Offset Update" doc:id="log-offset-update" 
-                message="Updated last processed offset to: #[vars.lastOffset]"/>
-        
-        <error-handler>
-            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="update-offset-error" type="ANY">
-                <logger level="ERROR" doc:name="Log Offset Update Error" doc:id="log-offset-update-error" 
-                        message="Error updating offset: #[error.description]"/>
-            </on-error-propagate>
-        </error-handler>
-    </flow>
+        <try doc:name="Try Store Offset" doc:id="try-store-offset">
+            <os:store doc:name="Store Last Offset" doc:id="store-last-offset" 
+                      key="${objectstore.offset.key}" 
+                      objectStore="persistent_object_store">
+                <os:value>#[vars.lastOffset]</os:value>
+            </os:store>
+            
+            <logger level="INFO" doc:name="Log Offset Update" doc:id="log-offset-update" 
+                    message="Updated last processed offset to: #[vars.lastOffset]"/>
+            
+            <error-handler>
+                <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="update-offset-error" type="ANY">
+                    <logger level="ERROR" doc:name="Log Offset Update Error" doc:id="log-offset-update-error" 
+                            message="Error updating offset: #[error.description]"/>
+                </on-error-propagate>
+            </error-handler>
+        </try>
+    </sub-flow>
 
     <!-- Error Notification Flow -->
     <flow name="error-notification-flow" doc:name="Error Notification Flow" doc:id="error-notification-flow">
@@ -200,7 +208,7 @@ vars.kafkaMessages map (message, index) -> {
     </flow>
 
     <!-- Write Kafka Records to SFTP Flow -->
-    <flow name="write-kafka-to-sftp-flow" doc:name="Write Kafka to SFTP Flow" doc:id="write-kafka-to-sftp-flow">
+    <sub-flow name="write-kafka-to-sftp-flow" doc:name="Write Kafka to SFTP Flow" doc:id="write-kafka-to-sftp-flow">
         <logger level="INFO" doc:name="Log SFTP Write Start" doc:id="log-sftp-write-start" 
                 message="Starting to write #[sizeOf(payload)] Kafka records to SFTP"/>
         
@@ -229,21 +237,129 @@ payload map (record, index) -> {
         <logger level="INFO" doc:name="Log Filename" doc:id="log-filename" 
                 message="Generated SFTP filename: #[vars.sftpFileName]"/>
         
-        <!-- Write to SFTP -->
-        <sftp:write doc:name="Write to SFTP" doc:id="write-to-sftp-operation" 
-                    config-ref="SFTP_Config" 
-                    path="#[vars.sftpFileName]">
-            <sftp:content>#[payload]</sftp:content>
-        </sftp:write>
+        <try doc:name="Try SFTP Write" doc:id="try-sftp-write">
+            <!-- Write to SFTP -->
+            <sftp:write doc:name="Write to SFTP" doc:id="write-to-sftp-operation" 
+                        config-ref="SFTP_Config" 
+                        path="#[vars.sftpFileName]">
+                <sftp:content>#[payload]</sftp:content>
+            </sftp:write>
+            
+            <logger level="INFO" doc:name="Log SFTP Write Success" doc:id="log-sftp-write-success" 
+                    message="Successfully wrote Kafka records to SFTP file: #[vars.sftpFileName]"/>
+            
+            <error-handler>
+                <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="sftp-write-error" type="ANY">
+                    <logger level="ERROR" doc:name="Log SFTP Write Error" doc:id="log-sftp-write-error" 
+                            message="Error writing to SFTP: #[error.description]"/>
+                    <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref4" name="error-notification-flow"/>
+                </on-error-propagate>
+            </error-handler>
+        </try>
+    </sub-flow>
+
+    <!-- Send Kafka Data to DataPower SOAP API Flow -->
+    <flow name="kafka-to-datapower-soap-flow" doc:name="Kafka to DataPower SOAP Flow" doc:id="kafka-to-datapower-soap-flow">
+        <kafka:consumer config-ref="Kafka_Consumer_config" 
+                        topic="${kafka.topic.name}" 
+                        doc:name="Kafka Consumer for SOAP" 
+                        doc:id="kafka-consumer-soap">
+            <kafka:consumer-commit-strategy>
+                <kafka:manual-commit/>
+            </kafka:consumer-commit-strategy>
+        </kafka:consumer>
         
-        <logger level="INFO" doc:name="Log SFTP Write Success" doc:id="log-sftp-write-success" 
-                message="Successfully wrote Kafka records to SFTP file: #[vars.sftpFileName]"/>
+        <logger level="INFO" doc:name="Log Kafka Messages for SOAP" doc:id="log-kafka-messages-soap" 
+                message="Received #[sizeOf(payload)] messages from Kafka for DataPower SOAP processing"/>
+        
+        <!-- Transform Kafka messages to SOAP request format -->
+        <ee:transform doc:name="Transform to SOAP Request" doc:id="transform-to-soap-request">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+ns soap = "http://schemas.xmlsoap.org/soap/envelope/"
+ns dp = "http://datapower.service.com/"
+---
+{
+    soap#Envelope: {
+        soap#Header: {},
+        soap#Body: {
+            dp#processData: {
+                dp#requestId: uuid(),
+                dp#timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"},
+                dp#data: payload map (message, index) -> {
+                    dp#record: {
+                        dp#id: uuid(),
+                        dp#offset: message.offset,
+                        dp#partition: message.partition,
+                        dp#topic: message.topic,
+                        dp#key: message.key default "",
+                        dp#value: message.payload as String,
+                        dp#timestamp: message.timestamp default now() as String {format: "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"}
+                    }
+                }
+            }
+        }
+    }
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <logger level="INFO" doc:name="Log SOAP Request" doc:id="log-soap-request" 
+                message="Sending SOAP request to DataPower with #[sizeOf(payload.Envelope.Body.processData.data)] records"/>
+        
+        <!-- Call DataPower SOAP API -->
+        <wsc:consume doc:name="Call DataPower SOAP API" doc:id="call-datapower-soap" 
+                     config-ref="DataPower_WSC_Config" 
+                     operation="${soap.datapower.operation}"/>
+        
+        <logger level="INFO" doc:name="Log SOAP Response" doc:id="log-soap-response" 
+                message="Received SOAP response from DataPower: #[payload]"/>
+        
+        <!-- Transform SOAP response for logging -->
+        <ee:transform doc:name="Transform SOAP Response" doc:id="transform-soap-response">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "status": "success",
+    "timestamp": now(),
+    "response": payload,
+    "recordsProcessed": vars.recordCount default 0
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Commit Kafka offset after successful SOAP call -->
+        <kafka:commit doc:name="Commit Kafka Offset" doc:id="commit-kafka-offset-soap" 
+                      config-ref="Kafka_Consumer_config" commitKey="manual"/>
+        
+        <logger level="INFO" doc:name="Log Success" doc:id="log-success-soap" 
+                message="Successfully sent Kafka data to DataPower SOAP API: #[payload]"/>
         
         <error-handler>
-            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="sftp-write-error" type="ANY">
-                <logger level="ERROR" doc:name="Log SFTP Write Error" doc:id="log-sftp-write-error" 
-                        message="Error writing to SFTP: #[error.description]"/>
-                <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref4" name="error-notification-flow"/>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="soap-error" type="ANY">
+                <logger level="ERROR" doc:name="Log SOAP Error" doc:id="log-soap-error" 
+                        message="Error calling DataPower SOAP API: #[error.description]"/>
+                
+                <!-- Transform error response -->
+                <ee:transform doc:name="Transform Error Response" doc:id="transform-error-response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "status": "error",
+    "timestamp": now(),
+    "error": error.description,
+    "errorType": error.errorType,
+    "flow": flow.name
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                
+                <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref5" name="error-notification-flow"/>
             </on-error-propagate>
         </error-handler>
     </flow>

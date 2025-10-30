@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	
+	<flow name="file-reader-scheduler-flow" doc:id="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
+		<scheduler doc:name="Every 15 minutes" doc:id="scheduler-15min">
+			<scheduling-strategy>
+				<fixed-frequency frequency="15" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		
+		<logger level="INFO" doc:name="Start Processing" doc:id="start-logger" message="Starting file processing at #[now()]"/>
+		
+		<try doc:name="Try" doc:id="main-try-scope">
+			<file:list doc:name="List files" doc:id="list-files" config-ref="File_Config" directoryPath="${file.input.path}">
+				<file:matcher filenamePattern="*.txt"/>
+			</file:list>
+			
+			<foreach doc:name="For Each File" doc:id="foreach-file">
+				<logger level="INFO" doc:name="Processing file" doc:id="file-logger" message="Processing file: #[payload.attributes.fileName]"/>
+				
+				<file:read doc:name="Read file content" doc:id="read-file" config-ref="File_Config" path="#[payload.path]"/>
+				
+				<ee:transform doc:name="Transform to JSON" doc:id="transform-to-json">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	fileName: vars.fileName default attributes.fileName,
+	content: payload as String,
+	processedAt: now(),
+	fileSize: sizeOf(payload as String),
+	recordId: uuid()
+}]]></ee:set-payload>
+					</ee:message>
+					<ee:variables>
+						<ee:set-variable variableName="fileName"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.fileName]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				
+				<logger level="INFO" doc:name="Data transformed" doc:id="transform-logger" message="Data transformed for file: #[vars.fileName]"/>
+				
+				<db:insert doc:name="Insert into text-table" doc:id="db-insert" config-ref="Database_Config">
+					<db:sql><![CDATA[INSERT INTO text_table (record_id, file_name, content, processed_at, file_size) 
+VALUES (:recordId, :fileName, :content, :processedAt, :fileSize)]]></db:sql>
+					<db:input-parameters><![CDATA[#[{
+	recordId: payload.recordId,
+	fileName: payload.fileName,
+	content: payload.content,
+	processedAt: payload.processedAt,
+	fileSize: payload.fileSize
+}]]]></db:input-parameters>
+				</db:insert>
+				
+				<logger level="INFO" doc:name="Record inserted" doc:id="insert-logger" message="Record inserted successfully for file: #[vars.fileName]"/>
+				
+				<file:move doc:name="Move to processed folder" doc:id="move-file" config-ref="File_Config" sourcePath="#[payload.path]" targetPath="${file.processed.path}/#[vars.fileName]"/>
+				
+			</foreach>
+			
+			<logger level="INFO" doc:name="Processing completed" doc:id="complete-logger" message="File processing completed successfully"/>
+			
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="error-propagate" type="ANY">
+					<logger level="ERROR" doc:name="Error occurred" doc:id="error-logger" message="Error processing files: #[error.description]"/>
+					
+					<ee:transform doc:name="Error response" doc:id="error-transform">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	status: "ERROR",
+	message: error.description,
+	timestamp: now(),
+	errorType: error.errorType.asString
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+	</flow>
+	
+	<flow name="database-health-check-flow" doc:id="db-health-check-flow">
+		<scheduler doc:name="Health check every hour" doc:id="health-scheduler">
+			<scheduling-strategy>
+				<fixed-frequency frequency="1" timeUnit="HOURS"/>
+			</scheduling-strategy>
+		</scheduler>
+		
+		<db:select doc:name="Test DB connection" doc:id="db-health-check" config-ref="Database_Config">
+			<db:sql><![CDATA[SELECT 1 as health_check]]></db:sql>
+		</db:select>
+		
+		<logger level="INFO" doc:name="DB Health OK" doc:id="health-ok-logger" message="Database connection is healthy"/>
+		
+		<error-handler>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="DB Health Error" doc:id="health-error" type="ANY">
+				<logger level="ERROR" doc:name="DB Health Failed" doc:id="health-error-logger" message="Database health check failed: #[error.description]"/>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+</mule>
