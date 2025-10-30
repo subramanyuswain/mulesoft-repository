@@ -242,3 +242,7 @@ If you need help:
 ---
 
 **Remember**: This app is like having a reliable assistant that never sleeps and always remembers to check for new files every 15 minutes! 🤖✨
+
+**Prompt**: Create a new project names file-reader-process to read the content from a text file and write it into a database table named text-table. It should run as a scheduler that triggeres every 15 mins and fetches all data from text file and write to table. 
+
+Make sure all the passwords are saved in encryted format. Write all the Munits and README file that explains the business logic like a 5 year old
