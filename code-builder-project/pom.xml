@@ -99,6 +99,46 @@
                 <extensions>true</extensions>
                 <configuration/>
             </plugin>
+            <plugin>
+                <groupId>com.mulesoft.munit.tools</groupId>
+                <artifactId>munit-maven-plugin</artifactId>
+                <version>${munit.version}</version>
+                <executions>
+                    <execution>
+                        <id>test</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>coverage-report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <coverage>
+                        <runCoverage>true</runCoverage>
+                        <formats>
+                            <format>html</format>
+                            <format>json</format>
+                        </formats>
+                    </coverage>
+                    <runtimeVersion>${mule.version}</runtimeVersion>
+                    <environmentVariables>
+                        <kafka.topic.name>test-topic</kafka.topic.name>
+                        <kafka.batch.size>100</kafka.batch.size>
+                        <db.table.name>kafka_messages</db.table.name>
+                        <objectstore.offset.key>last_processed_offset</objectstore.offset.key>
+                        <sftp.file.name.prefix>kafka_data_</sftp.file.name.prefix>
+                        <sftp.file.extension>.csv</sftp.file.extension>
+                        <soap.datapower.operation>processData</soap.datapower.operation>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <repositories>

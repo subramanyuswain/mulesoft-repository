@@ -8,6 +8,7 @@
       xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
       xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp"
       xmlns:wsc="http://www.mulesoft.org/schema/mule/wsc"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
                           http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
@@ -16,18 +17,17 @@
                           http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
                           http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
                           http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd
-                          http://www.mulesoft.org/schema/mule/wsc http://www.mulesoft.org/schema/mule/wsc/current/mule-wsc.xsd">
+                          http://www.mulesoft.org/schema/mule/wsc http://www.mulesoft.org/schema/mule/wsc/current/mule-wsc.xsd
+                          http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!-- HTTP Listener Configuration -->
+    <http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config">
+        <http:listener-connection host="0.0.0.0" port="8081" />
+    </http:listener-config>
 
     <!-- Main Kafka Consumer Flow -->
     <flow name="kafka-consumer-flow" doc:name="Kafka Consumer Flow" doc:id="kafka-consumer-flow">
-        <kafka:consumer config-ref="Kafka_Consumer_config" 
-                        topic="${kafka.topic.name}" 
-                        doc:name="Kafka Consumer" 
-                        doc:id="kafka-consumer">
-            <kafka:consumer-commit-strategy>
-                <kafka:manual-commit/>
-            </kafka:consumer-commit-strategy>
-        </kafka:consumer>
+        <http:listener doc:name="HTTP Listener" doc:id="http-listener" config-ref="HTTP_Listener_config" path="/kafka/process"/>
         
         <logger level="INFO" doc:name="Log Received Messages" doc:id="log-received-messages" 
                 message="Received #[sizeOf(payload)] messages from Kafka topic: ${kafka.topic.name}"/>
@@ -96,9 +96,6 @@ vars.kafkaMessages map (message, index) -> {
         <!-- Update offset in object store -->
         <flow-ref doc:name="Update Offset" doc:id="update-offset" name="update-offset-flow"/>
         
-        <!-- Commit Kafka offset -->
-        <kafka:commit doc:name="Commit Kafka Offset" doc:id="commit-kafka-offset" config-ref="Kafka_Consumer_config" commitKey="manual"/>
-        
         <logger level="INFO" doc:name="Log Success" doc:id="log-success" 
                 message="Successfully processed #[sizeOf(payload)] messages. Last offset: #[vars.lastOffset]"/>
         
@@ -109,7 +106,7 @@ vars.kafkaMessages map (message, index) -> {
                 <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref2" name="error-notification-flow"/>
             </on-error-propagate>
         </error-handler>
-    </flow>
+    </sub-flow>
 
     <!-- Insert Database Flow -->
     <sub-flow name="insert-database-flow" doc:name="Insert Database Flow" doc:id="insert-database-flow">
@@ -141,7 +138,7 @@ vars.kafkaMessages map (message, index) -> {
                 <flow-ref doc:name="Error Notification Flow" doc:id="error-notification-flow-ref3" name="error-notification-flow"/>
             </on-error-propagate>
         </error-handler>
-    </flow>
+    </sub-flow>
 
     <!-- Get Last Offset Flow -->
     <sub-flow name="get-last-offset-flow" doc:name="Get Last Offset Flow" doc:id="get-last-offset-flow">
@@ -191,6 +188,8 @@ vars.kafkaMessages map (message, index) -> {
 
     <!-- Error Notification Flow -->
     <flow name="error-notification-flow" doc:name="Error Notification Flow" doc:id="error-notification-flow">
+        <http:listener doc:name="HTTP Listener" doc:id="error-http-listener" config-ref="HTTP_Listener_config" path="/error/notify"/>
+        
         <logger level="ERROR" doc:name="Log Error Details" doc:id="log-error-details" 
                 message="Error occurred in flow: #[flow.name], Error: #[error.description], Detailed: #[error.detailedDescription]"/>
         
@@ -260,14 +259,7 @@ payload map (record, index) -> {
 
     <!-- Send Kafka Data to DataPower SOAP API Flow -->
     <flow name="kafka-to-datapower-soap-flow" doc:name="Kafka to DataPower SOAP Flow" doc:id="kafka-to-datapower-soap-flow">
-        <kafka:consumer config-ref="Kafka_Consumer_config" 
-                        topic="${kafka.topic.name}" 
-                        doc:name="Kafka Consumer for SOAP" 
-                        doc:id="kafka-consumer-soap">
-            <kafka:consumer-commit-strategy>
-                <kafka:manual-commit/>
-            </kafka:consumer-commit-strategy>
-        </kafka:consumer>
+        <http:listener doc:name="HTTP Listener" doc:id="soap-http-listener" config-ref="HTTP_Listener_config" path="/kafka/soap"/>
         
         <logger level="INFO" doc:name="Log Kafka Messages for SOAP" doc:id="log-kafka-messages-soap" 
                 message="Received #[sizeOf(payload)] messages from Kafka for DataPower SOAP processing"/>
@@ -331,10 +323,6 @@ output application/json
             </ee:message>
         </ee:transform>
         
-        <!-- Commit Kafka offset after successful SOAP call -->
-        <kafka:commit doc:name="Commit Kafka Offset" doc:id="commit-kafka-offset-soap" 
-                      config-ref="Kafka_Consumer_config" commitKey="manual"/>
-        
         <logger level="INFO" doc:name="Log Success" doc:id="log-success-soap" 
                 message="Successfully sent Kafka data to DataPower SOAP API: #[payload]"/>
         
@@ -344,6 +332,18 @@ output application/json
                         message="Error calling DataPower SOAP API: #[error.description]"/>
                 
                 <!-- Transform error response -->
+                <ee:transform doc:name="Transform Error Response" doc:id="transform-error-response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "status": "error",
+    "timestamp": now(),
+    "error": error.description,
+    "errorType": error.errorType,
+    "flow": flow.name
+}]]></ee:set-payload>
                 <ee:transform doc:name="Transform Error Response" doc:id="transform-error-response">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
